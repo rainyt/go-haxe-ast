@@ -82,17 +82,19 @@ func (ast *AST) ParserToken() Token {
 	for {
 		char := ast.ReadChar()
 		if !readStart {
-			if char == " " || char == "\n" {
+			switch char {
+			case " ", "	", "\n":
 				return TIgonre
+			case "{", "}":
+				ast.CacheToken += char
+				return TCommon
 			}
 			readStart = true
 			ast.CacheToken += char
 		} else {
 			// 判断结束
 			switch char {
-			case " ":
-				readEnd = true
-			case ";":
+			case " ", ";":
 				readEnd = true
 			}
 			if !readEnd {
@@ -130,6 +132,56 @@ func (ast *AST) ReadChar() string {
 func (ast *AST) CheckToken() (*TokenKey, error) {
 	fmt.Println("检查", ast.CacheToken)
 	switch ast.CacheToken {
+	case "var":
+		return &TokenKey{
+			Token: TVar,
+			Key:   ast.CacheToken,
+		}, nil
+	case "inline":
+		return &TokenKey{
+			Token: TInline,
+			Key:   ast.CacheToken,
+		}, nil
+	case "public":
+		return &TokenKey{
+			Token: TPublic,
+			Key:   ast.CacheToken,
+		}, nil
+	case "private":
+		return &TokenKey{
+			Token: TPrivate,
+			Key:   ast.CacheToken,
+		}, nil
+	case "static":
+		return &TokenKey{
+			Token: TPrivate,
+			Key:   ast.CacheToken,
+		}, nil
+	case "{":
+		return &TokenKey{
+			Token: TBlockOpen,
+			Key:   ast.CacheToken,
+		}, nil
+	case "}":
+		return &TokenKey{
+			Token: TBlockClose,
+			Key:   ast.CacheToken,
+		}, nil
+	case "implements":
+		return &TokenKey{
+			Token: TImplements,
+			Key:   ast.CacheToken,
+		}, nil
+	case "extends":
+		return &TokenKey{
+			Token: TExtends,
+			Key:   ast.CacheToken,
+		}, nil
+	case "class":
+		return &TokenKey{
+			Token: TClass,
+			Key:   ast.CacheToken,
+		}, nil
 	case "package":
 		// 包名下个token
 		return &TokenKey{
@@ -167,7 +219,7 @@ func (ast *AST) CheckToken() (*TokenKey, error) {
 	}
 	if ast.TokensSize > 0 {
 		switch ast.Tokens[ast.TokensSize-1].Token {
-		case TPackage, TImport, TUsing:
+		case TPackage, TImport, TUsing, TClass, TExtends, TImplements:
 			// 可接收参数
 			return &TokenKey{
 				Token: TCommon,
