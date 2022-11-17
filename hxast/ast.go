@@ -16,6 +16,7 @@ type Pos struct {
 
 // AST数据结构体
 type AST struct {
+	Path       string      // 解析路径
 	Tokens     []*TokenKey // Tokens列表
 	TokensSize int         // Token长度
 	Point      Pos         // 坐标
@@ -27,7 +28,7 @@ type AST struct {
 func (ast *AST) ToString() {
 	fmt.Println("Tokens:")
 	for _, tk := range ast.Tokens {
-		fmt.Printf(tk.Key + " ")
+		fmt.Printf("%s(%d)\n", tk.Key, tk.Token)
 	}
 	fmt.Println("Pos:")
 	ast.ToPosString()
@@ -40,7 +41,9 @@ func (ast *AST) ToPosString() {
 
 // 开始解析Haxe文件
 func ParserHaxe(path string) *AST {
-	var ast = &AST{}
+	var ast = &AST{
+		Path: path,
+	}
 	// 开始解析
 	b, e := os.ReadFile(path)
 	if e != nil {
@@ -55,16 +58,27 @@ func ParserHaxe(path string) *AST {
 	for {
 		if ast.Point.At < ast.Point.MaxAt {
 			// 逐个解析
-			t := ast.ParserToken()
+			t, et := ast.ParserToken()
 			switch t {
 			case TEnd:
 				break
 			case TCommon:
 				tk, terr := ast.CheckToken()
-				if terr != nil {
+				if terr != nil && et == TIgonre {
 					panic(terr)
 				}
-				ast.Tokens = append(ast.Tokens, tk)
+				if tk != nil {
+					ast.Tokens = append(ast.Tokens, tk)
+					ast.TokensSize++
+				}
+			}
+			switch et {
+			case TIgonre:
+			default:
+				// 指定类型:Class
+				ast.Tokens = append(ast.Tokens, &TokenKey{
+					Token: et,
+				})
 				ast.TokensSize++
 			}
 		} else {
@@ -75,40 +89,46 @@ func ParserHaxe(path string) *AST {
 }
 
 // 解析Token
-func (ast *AST) ParserToken() Token {
-	readStart := false
+func (ast *AST) ParserToken() (Token, Token) {
 	readEnd := false
 	ast.CacheToken = ""
+	var endToken Token = TIgonre
 	for {
 		char := ast.ReadChar()
-		if !readStart {
-			switch char {
-			case " ", "	", "\n":
-				return TIgonre
-			case "{", "}":
-				ast.CacheToken += char
-				return TCommon
-			}
-			readStart = true
+		switch char {
+		case "(":
+			endToken = TRBlockOpen
+			readEnd = true
+		case ")":
+			endToken = TRBlockOpen
+			readEnd = true
+		case "{":
+			endToken = TBlockOpen
+			readEnd = true
+		case "}":
+			endToken = TBlockClose
+			readEnd = true
+		case "=":
+			endToken = TEqual
+			readEnd = true
+		case ":":
+			endToken = TType
+			readEnd = true
+		case "\n", ",", " ", "	", ";":
+			readEnd = true
+			return TCommon, endToken
+		}
+		if !readEnd || len(ast.CacheToken) == 0 {
 			ast.CacheToken += char
-		} else {
-			// 判断结束
-			switch char {
-			case " ", ";":
-				readEnd = true
-			}
-			if !readEnd {
-				ast.CacheToken += char
-			}
 		}
 		if readEnd || ast.Point.At == ast.Point.MaxAt {
 			break
 		}
 	}
 	if ast.Point.At == ast.Point.MaxAt {
-		return TEnd
+		return TEnd, endToken
 	} else {
-		return TCommon
+		return TCommon, endToken
 	}
 }
 
@@ -130,8 +150,46 @@ func (ast *AST) ReadChar() string {
 
 // 检查token的合法性
 func (ast *AST) CheckToken() (*TokenKey, error) {
+	if len(ast.CacheToken) == 0 {
+		return nil, nil
+	}
 	fmt.Println("检查", ast.CacheToken)
 	switch ast.CacheToken {
+	case "&&":
+		return &TokenKey{
+			Token: TAnd,
+			Key:   ast.CacheToken,
+		}, nil
+	case "||":
+		return &TokenKey{
+			Token: TOr,
+			Key:   ast.CacheToken,
+		}, nil
+	case "if":
+		return &TokenKey{
+			Token: TIf,
+			Key:   ast.CacheToken,
+		}, nil
+	case "function":
+		return &TokenKey{
+			Token: TFunction,
+			Key:   ast.CacheToken,
+		}, nil
+	case "default":
+		return &TokenKey{
+			Token: TDefault,
+			Key:   ast.CacheToken,
+		}, nil
+	case "get":
+		return &TokenKey{
+			Token: TGet,
+			Key:   ast.CacheToken,
+		}, nil
+	case "set":
+		return &TokenKey{
+			Token: TSet,
+			Key:   ast.CacheToken,
+		}, nil
 	case "var":
 		return &TokenKey{
 			Token: TVar,
@@ -218,14 +276,19 @@ func (ast *AST) CheckToken() (*TokenKey, error) {
 		}
 	}
 	if ast.TokensSize > 0 {
-		switch ast.Tokens[ast.TokensSize-1].Token {
-		case TPackage, TImport, TUsing, TClass, TExtends, TImplements:
+		last := ast.Tokens[ast.TokensSize-1]
+		switch last.Token {
+		case TPackage, TImport, TUsing, TClass, TExtends, TImplements, TVar, TType, TEqual, TNew, TBlockOpen, TRBlockOpen, TAnd, TOr:
 			// 可接收参数
 			return &TokenKey{
 				Token: TCommon,
 				Key:   ast.CacheToken,
 			}, nil
+		default:
+			ast.ToString()
+			return nil, fmt.Errorf("上一个token:%s，未定义的token:%s %s:%d:%d", last.Key, ast.CacheToken, ast.Path, ast.Point.Line, ast.Point.LineAt)
 		}
 	}
-	return nil, fmt.Errorf("未定义的token:%s", ast.CacheToken)
+	ast.ToString()
+	return nil, fmt.Errorf("ast.TokensSize=%d, 未定义的token:%s %s:%d:%d", ast.TokensSize, ast.CacheToken, ast.Path, ast.Point.Line, ast.Point.LineAt)
 }
